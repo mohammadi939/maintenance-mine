@@ -7,6 +7,22 @@ date_default_timezone_set('Asia/Tehran');
 const DB_DIR = __DIR__ . '/data';
 const DB_FILE = DB_DIR . '/cmms.sqlite';
 
+
+function resolve_allowed_origin(): string {
+    $origin = getenv('APP_ALLOWED_ORIGIN');
+    if ($origin !== false && $origin !== '') {
+        return $origin;
+    }
+    $port = getenv('APP_ALLOWED_ORIGIN_PORT');
+    if ($port !== false && $port !== '') {
+        $normalized = preg_replace('/[^0-9]/', '', (string)$port);
+        if ($normalized !== '') {
+            return 'http://localhost:' . $normalized;
+        }
+    }
+    return 'http://localhost:5173';
+}
+
 function ensure_data_dirs(): void {
     if (!is_dir(DB_DIR)) {
         mkdir(DB_DIR, 0777, true);
@@ -87,11 +103,28 @@ function require_auth(): array {
 }
 
 function allow_cors(): void {
-    header('Access-Control-Allow-Origin: *');
+    $allowedOrigin = resolve_allowed_origin();
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $isAllowed = $origin === '' || strcasecmp($origin, $allowedOrigin) === 0;
+
+    if ($isAllowed) {
+        header('Access-Control-Allow-Origin: ' . $allowedOrigin);
+    }
+
+    header('Vary: Origin');
     header('Access-Control-Allow-Headers: Content-Type, Authorization');
     header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-        http_response_code(204);
+    header('Referrer-Policy: no-referrer');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+        http_response_code($isAllowed ? 204 : 403);
         exit;
+    }
+
+    if (!$isAllowed && $origin !== '') {
+        json_response(['error' => 'مبدأ مجاز نیست.'], 403);
     }
 }
