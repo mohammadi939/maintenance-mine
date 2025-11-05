@@ -4,16 +4,17 @@
 ini_set('default_charset', 'UTF-8');
 date_default_timezone_set('Asia/Tehran');
 
-const DB_DIR = __DIR__ . '/data';
-const DB_FILE = DB_DIR . '/cmms.sqlite';
+const STORAGE_DIR = __DIR__ . '/storage';
+const DB_DIR = STORAGE_DIR . '/database';
+const DB_FILE = DB_DIR . '/maintenance.sqlite3';
+const BACKUP_DIR = STORAGE_DIR . '/backups';
+const UPLOADS_DIR = __DIR__ . '/uploads';
 
 function ensure_data_dirs(): void {
-    if (!is_dir(DB_DIR)) {
-        mkdir(DB_DIR, 0777, true);
-    }
-    $uploads = __DIR__ . '/uploads';
-    if (!is_dir($uploads)) {
-        mkdir($uploads, 0777, true);
+    foreach ([STORAGE_DIR, DB_DIR, BACKUP_DIR, UPLOADS_DIR] as $dir) {
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
     }
 }
 
