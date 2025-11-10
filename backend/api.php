@@ -52,7 +52,7 @@ switch ($action) {
         if ($form_no === '' || $date_shamsi === '' || $unit_id <= 0) {
             json_response(['error' => 'فیلدهای اجباری خالی است.'], 400);
         }
-        if (unique_form_no_exists($db, 'exit_forms', 'form_no', $form_no)) {
+        if (unique_form_no_exists($db, 'exit_requests', 'request_no', $form_no)) {
             json_response(['error' => 'شماره فرم تکراری است.'], 409);
         }
         if (!is_array($items) || count($items) < 1 || count($items) > 5) {
@@ -73,16 +73,16 @@ switch ($action) {
         }
 
         $db->beginTransaction();
-        $db->prepare('INSERT INTO exit_forms(form_no, date_shamsi, out_type, driver_name, reason, unit_id, created_by) VALUES (?,?,?,?,?,?,?)')
+        $db->prepare('INSERT INTO exit_requests(request_no, request_date_shamsi, dispatch_type, driver_name, request_reason, unit_id, created_by) VALUES (?,?,?,?,?,?,?)')
             ->execute([$form_no, $date_shamsi, $out_type, $driver_name, $reason, $unit_id, $user['id']]);
-        $exit_form_id = (int)$db->lastInsertId();
-        $stmtItem = $db->prepare('INSERT INTO exit_items(exit_form_id, description, code, quantity, unit, equipment_id) VALUES (?,?,?,?,?,?)');
+        $exit_request_id = (int)$db->lastInsertId();
+        $stmtItem = $db->prepare('INSERT INTO exit_request_items(exit_request_id, description, code, quantity, unit, equipment_id) VALUES (?,?,?,?,?,?)');
         foreach ($items as $it) {
-            $stmtItem->execute([$exit_form_id, trim($it['description']), $it['code'] ?? null, (float)$it['quantity'], trim($it['unit']), $it['equipment_id'] ?? null]);
+            $stmtItem->execute([$exit_request_id, trim($it['description']), $it['code'] ?? null, (float)$it['quantity'], trim($it['unit']), $it['equipment_id'] ?? null]);
         }
         $db->commit();
 
-        json_response(['id' => $exit_form_id]);
+        json_response(['id' => $exit_request_id]);
         break;
 
     case 'create_repair_form':
@@ -98,7 +98,7 @@ switch ($action) {
         if ($form_no === '' || $unit_id <= 0 || $date_shamsi === '') {
             json_response(['error' => 'فیلدهای اجباری خالی است.'], 400);
         }
-        if (unique_form_no_exists($db, 'repair_forms', 'form_no', $form_no)) {
+        if (unique_form_no_exists($db, 'external_repairs', 'repair_no', $form_no)) {
             json_response(['error' => 'شماره فرم تعمیر تکراری است.'], 409);
         }
         if ($user['role'] === 'unit' && $user['unit_id'] !== $unit_id) {
@@ -106,7 +106,7 @@ switch ($action) {
         }
         $exit_id = null;
         if ($reference_exit_form_no !== '') {
-            $q = $db->prepare('SELECT id FROM exit_forms WHERE form_no = ?');
+            $q = $db->prepare('SELECT id FROM exit_requests WHERE request_no = ?');
             $q->execute([$reference_exit_form_no]);
             $row = $q->fetch();
             if ($row) { $exit_id = (int)$row['id']; }
@@ -120,11 +120,11 @@ switch ($action) {
             }
         }
         $db->beginTransaction();
-        $db->prepare('INSERT INTO repair_forms(form_no, unit_id, date_shamsi, description, reference_exit_form_id, created_by) VALUES (?,?,?,?,?,?)')
+        $db->prepare('INSERT INTO external_repairs(repair_no, unit_id, report_date_shamsi, details, reference_exit_request_id, created_by) VALUES (?,?,?,?,?,?)')
             ->execute([$form_no, $unit_id, $date_shamsi, $description, $exit_id, $user['id']]);
         $repair_id = (int)$db->lastInsertId();
         if (is_array($items) && count($items) > 0) {
-            $stmtItem = $db->prepare('INSERT INTO repair_items(repair_form_id, description, code, quantity, unit, equipment_id) VALUES (?,?,?,?,?,?)');
+            $stmtItem = $db->prepare('INSERT INTO external_repair_items(external_repair_id, description, code, quantity, unit, equipment_id) VALUES (?,?,?,?,?,?)');
             foreach ($items as $it) {
                 $stmtItem->execute([$repair_id, trim($it['description']), $it['code'] ?? null, (float)$it['quantity'], trim($it['unit']), $it['equipment_id'] ?? null]);
             }
@@ -150,7 +150,7 @@ switch ($action) {
         if ($confirm_no === '') {
             json_response(['error' => 'شماره تایید ورود الزامی است.'], 400);
         }
-        if (unique_form_no_exists($db, 'entry_confirms', 'confirm_no', $confirm_no)) {
+        if (unique_form_no_exists($db, 'entry_confirmations', 'confirmation_no', $confirm_no)) {
             json_response(['error' => 'شماره تایید تکراری است.'], 409);
         }
         if (!is_array($items) || count($items) < 1 || count($items) > 11) {
@@ -166,21 +166,21 @@ switch ($action) {
         }
         $exit_id = null; $repair_id = null;
         if ($ref_exit_no !== '') {
-            $q = $db->prepare('SELECT id FROM exit_forms WHERE form_no = ?');
+            $q = $db->prepare('SELECT id FROM exit_requests WHERE request_no = ?');
             $q->execute([$ref_exit_no]);
             $r = $q->fetch(); if ($r) { $exit_id = (int)$r['id']; }
         }
         if ($ref_repair_no !== '') {
-            $q = $db->prepare('SELECT id FROM repair_forms WHERE form_no = ?');
+            $q = $db->prepare('SELECT id FROM external_repairs WHERE repair_no = ?');
             $q->execute([$ref_repair_no]);
             $r = $q->fetch(); if ($r) { $repair_id = (int)$r['id']; }
         }
 
         $db->beginTransaction();
-        $db->prepare('INSERT INTO entry_confirms(confirm_no, purchase_date_shamsi, purchase_center, purchase_request_code, buyer_name, driver_name, reference_exit_form_id, reference_repair_form_id, created_by) VALUES (?,?,?,?,?,?,?,?,?)')
+        $db->prepare('INSERT INTO entry_confirmations(confirmation_no, purchase_date_shamsi, purchase_center, purchase_request_code, buyer_name, driver_name, reference_exit_request_id, reference_external_repair_id, created_by) VALUES (?,?,?,?,?,?,?,?,?)')
             ->execute([$confirm_no, $purchase_date_shamsi, $purchase_center, $purchase_request_code, $buyer_name, $driver_name, $exit_id, $repair_id, $user['id']]);
         $entry_id = (int)$db->lastInsertId();
-        $stmtItem = $db->prepare('INSERT INTO entry_items(entry_confirm_id, description, code, quantity, unit) VALUES (?,?,?,?,?)');
+        $stmtItem = $db->prepare('INSERT INTO entry_confirmation_items(entry_confirmation_id, description, code, quantity, unit) VALUES (?,?,?,?,?)');
         foreach ($items as $it) {
             $stmtItem->execute([$entry_id, trim($it['description']), $it['code'] ?? null, (float)$it['quantity'], trim($it['unit'])]);
         }
@@ -195,8 +195,8 @@ switch ($action) {
         if ($q === '') { json_response(['results' => []]); }
         // role/unit filter for exit and repair only (entry is a confirm)
         $params = ["%$q%", "%$q%"];
-        $sqlExit = 'SELECT "exit" as type, id, form_no as no, date_shamsi as date FROM exit_forms WHERE form_no LIKE ?';
-        $sqlRepair = 'SELECT "repair" as type, id, form_no as no, date_shamsi as date FROM repair_forms WHERE form_no LIKE ?';
+        $sqlExit = 'SELECT "exit" as type, id, request_no as no, request_date_shamsi as date FROM exit_requests WHERE request_no LIKE ?';
+        $sqlRepair = 'SELECT "repair" as type, id, repair_no as no, report_date_shamsi as date FROM external_repairs WHERE repair_no LIKE ?';
         // Apply unit filter for role unit
         if (isset($auth['user']['role']) && $auth['user']['role'] === 'unit') {
             $sqlExit .= ' AND unit_id = ' . (int)$auth['user']['unit_id'];
@@ -221,15 +221,15 @@ switch ($action) {
             $conditionsExit = ' WHERE unit_id = ' . $unitId;
             $conditionsRepair = ' WHERE unit_id = ' . $unitId;
         }
-        $exitRows = $db->query('SELECT id, form_no, date_shamsi, status FROM exit_forms' . $conditionsExit)->fetchAll();
-        $repairRows = $db->query('SELECT id, form_no, date_shamsi, status FROM repair_forms' . $conditionsRepair)->fetchAll();
+        $exitRows = $db->query('SELECT id, request_no, request_date_shamsi, status FROM exit_requests' . $conditionsExit)->fetchAll();
+        $repairRows = $db->query('SELECT id, repair_no, report_date_shamsi, status FROM external_repairs' . $conditionsRepair)->fetchAll();
         // map to common structure
         $items = [];
         foreach ($exitRows as $r) {
-            $items[] = ['type' => 'exit', 'no' => $r['form_no'], 'date' => $r['date_shamsi'], 'status' => $r['status'] ?: 'نامعلوم'];
+            $items[] = ['type' => 'exit', 'no' => $r['request_no'], 'date' => $r['request_date_shamsi'], 'status' => $r['status'] ?: 'نامعلوم'];
         }
         foreach ($repairRows as $r) {
-            $items[] = ['type' => 'repair', 'no' => $r['form_no'], 'date' => $r['date_shamsi'], 'status' => $r['status'] ?: 'نامعلوم'];
+            $items[] = ['type' => 'repair', 'no' => $r['repair_no'], 'date' => $r['report_date_shamsi'], 'status' => $r['status'] ?: 'نامعلوم'];
         }
         json_response(['items' => $items]);
         break;
@@ -249,14 +249,14 @@ switch ($action) {
             if (!in_array($user['role'], ['workshop','manager'], true)) {
                 json_response(['error' => 'دسترسی ندارید.'], 403);
             }
-            $stmt = $db->prepare('UPDATE repair_forms SET status = ? WHERE form_no = ?');
+            $stmt = $db->prepare('UPDATE external_repairs SET status = ? WHERE repair_no = ?');
             $stmt->execute([$status, $no]);
             json_response(['ok' => true]);
         } elseif ($entity === 'exit') {
             if (!in_array($user['role'], ['storekeeper','manager'], true)) {
                 json_response(['error' => 'دسترسی ندارید.'], 403);
             }
-            $stmt = $db->prepare('UPDATE exit_forms SET status = ? WHERE form_no = ?');
+            $stmt = $db->prepare('UPDATE exit_requests SET status = ? WHERE request_no = ?');
             $stmt->execute([$status, $no]);
             json_response(['ok' => true]);
         } else {
@@ -274,8 +274,8 @@ switch ($action) {
             $exitWhere = ' WHERE unit_id = ' . $unitId;
             $repairWhere = ' WHERE unit_id = ' . $unitId;
         }
-        $exit = $db->query('SELECT id, form_no, date_shamsi, status FROM exit_forms' . $exitWhere . ' ORDER BY id DESC LIMIT ' . $limit)->fetchAll();
-        $repair = $db->query('SELECT id, form_no, date_shamsi, status FROM repair_forms' . $repairWhere . ' ORDER BY id DESC LIMIT ' . $limit)->fetchAll();
+        $exit = $db->query('SELECT id, request_no, request_date_shamsi, status FROM exit_requests' . $exitWhere . ' ORDER BY id DESC LIMIT ' . $limit)->fetchAll();
+        $repair = $db->query('SELECT id, repair_no, report_date_shamsi, status FROM external_repairs' . $repairWhere . ' ORDER BY id DESC LIMIT ' . $limit)->fetchAll();
         json_response(['exit' => $exit, 'repair' => $repair]);
         break;
 

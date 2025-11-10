@@ -1,10 +1,36 @@
 <?php
-// Initialize SQLite database with schema and seed admin
+// Initialize SQLite database with the latest schema and seed admin
 require_once __DIR__ . '/db.php';
 
 allow_cors();
+ensure_data_dirs();
+
+$legacyDbFile = __DIR__ . '/data/cmms.sqlite';
+if (file_exists($legacyDbFile)) {
+    $timestamp = date('Ymd_His');
+    $backupFile = BACKUP_DIR . '/legacy_cmms_' . $timestamp . '.sqlite';
+    if (!@copy($legacyDbFile, $backupFile)) {
+        json_response(['error' => 'پشتیبان‌گیری از دیتابیس قدیمی ناموفق بود.'], 500);
+    }
+    @unlink($legacyDbFile);
+}
 
 $db = get_db();
+
+$dropTables = [
+    'entry_confirmation_items',
+    'entry_confirmations',
+    'external_repair_items',
+    'external_repairs',
+    'exit_request_items',
+    'exit_requests',
+    'entry_items',
+    'entry_confirms',
+    'repair_items',
+    'repair_forms',
+    'exit_items',
+    'exit_forms',
+];
 
 $schema = [
     // users
@@ -40,85 +66,85 @@ $schema = [
         FOREIGN KEY(unit_id) REFERENCES units(id) ON DELETE SET NULL
     )',
 
-    // exit forms
-    'CREATE TABLE IF NOT EXISTS exit_forms (
+    // exit requests
+    'CREATE TABLE IF NOT EXISTS exit_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        form_no TEXT NOT NULL UNIQUE,
-        date_shamsi TEXT NOT NULL,
-        out_type TEXT,
+        request_no TEXT NOT NULL UNIQUE,
+        request_date_shamsi TEXT NOT NULL,
+        dispatch_type TEXT,
         driver_name TEXT,
-        reason TEXT,
+        request_reason TEXT,
         unit_id INTEGER NOT NULL,
         status TEXT NOT NULL DEFAULT "در حال ارسال",
-        created_by INTEGER NOT NULL,
+        created_by INTEGER,
         FOREIGN KEY(unit_id) REFERENCES units(id) ON DELETE RESTRICT,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
     )',
 
-    'CREATE TABLE IF NOT EXISTS exit_items (
+    'CREATE TABLE IF NOT EXISTS exit_request_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        exit_form_id INTEGER NOT NULL,
+        exit_request_id INTEGER NOT NULL,
         description TEXT NOT NULL,
         code TEXT,
         quantity REAL NOT NULL CHECK(quantity > 0),
         unit TEXT NOT NULL,
         equipment_id INTEGER,
-        FOREIGN KEY(exit_form_id) REFERENCES exit_forms(id) ON DELETE CASCADE,
+        FOREIGN KEY(exit_request_id) REFERENCES exit_requests(id) ON DELETE CASCADE,
         FOREIGN KEY(equipment_id) REFERENCES equipment(id) ON DELETE SET NULL
     )',
 
-    // repair forms
-    'CREATE TABLE IF NOT EXISTS repair_forms (
+    // external repairs
+    'CREATE TABLE IF NOT EXISTS external_repairs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        form_no TEXT NOT NULL UNIQUE,
+        repair_no TEXT NOT NULL UNIQUE,
         unit_id INTEGER NOT NULL,
-        date_shamsi TEXT NOT NULL,
-        description TEXT,
+        report_date_shamsi TEXT NOT NULL,
+        details TEXT,
         status TEXT NOT NULL DEFAULT "در حال تعمیر",
-        reference_exit_form_id INTEGER,
-        created_by INTEGER NOT NULL,
+        reference_exit_request_id INTEGER,
+        created_by INTEGER,
         FOREIGN KEY(unit_id) REFERENCES units(id) ON DELETE RESTRICT,
-        FOREIGN KEY(reference_exit_form_id) REFERENCES exit_forms(id) ON DELETE SET NULL,
+        FOREIGN KEY(reference_exit_request_id) REFERENCES exit_requests(id) ON DELETE SET NULL,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
     )',
 
-    'CREATE TABLE IF NOT EXISTS repair_items (
+    'CREATE TABLE IF NOT EXISTS external_repair_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        repair_form_id INTEGER NOT NULL,
+        external_repair_id INTEGER NOT NULL,
         description TEXT NOT NULL,
         code TEXT,
         quantity REAL NOT NULL CHECK(quantity > 0),
         unit TEXT NOT NULL,
         equipment_id INTEGER,
-        FOREIGN KEY(repair_form_id) REFERENCES repair_forms(id) ON DELETE CASCADE,
+        FOREIGN KEY(external_repair_id) REFERENCES external_repairs(id) ON DELETE CASCADE,
         FOREIGN KEY(equipment_id) REFERENCES equipment(id) ON DELETE SET NULL
     )',
 
-    // entry confirms
-    'CREATE TABLE IF NOT EXISTS entry_confirms (
+    // entry confirmations
+    'CREATE TABLE IF NOT EXISTS entry_confirmations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        confirm_no TEXT NOT NULL UNIQUE,
+        confirmation_no TEXT NOT NULL UNIQUE,
         purchase_date_shamsi TEXT,
         purchase_center TEXT,
         purchase_request_code TEXT,
         buyer_name TEXT,
         driver_name TEXT,
-        reference_exit_form_id INTEGER,
-        reference_repair_form_id INTEGER,
-        created_by INTEGER NOT NULL,
-        FOREIGN KEY(reference_exit_form_id) REFERENCES exit_forms(id) ON DELETE SET NULL,
-        FOREIGN KEY(reference_repair_form_id) REFERENCES repair_forms(id) ON DELETE SET NULL,
+        reference_exit_request_id INTEGER,
+        reference_external_repair_id INTEGER,
+        created_by INTEGER,
+        FOREIGN KEY(reference_exit_request_id) REFERENCES exit_requests(id) ON DELETE SET NULL,
+        FOREIGN KEY(reference_external_repair_id) REFERENCES external_repairs(id) ON DELETE SET NULL,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
     )',
 
-    'CREATE TABLE IF NOT EXISTS entry_items (
+    'CREATE TABLE IF NOT EXISTS entry_confirmation_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entry_confirm_id INTEGER NOT NULL,
+        entry_confirmation_id INTEGER NOT NULL,
         description TEXT NOT NULL,
         code TEXT,
         quantity REAL NOT NULL CHECK(quantity > 0),
         unit TEXT NOT NULL,
-        FOREIGN KEY(entry_confirm_id) REFERENCES entry_confirms(id) ON DELETE CASCADE
+        FOREIGN KEY(entry_confirmation_id) REFERENCES entry_confirmations(id) ON DELETE CASCADE
     )',
 
     // attachments
@@ -131,11 +157,21 @@ $schema = [
     )'
 ];
 
-$db->beginTransaction();
-foreach ($schema as $sql) {
-    $db->exec($sql);
+try {
+    $db->beginTransaction();
+    foreach ($dropTables as $table) {
+        $db->exec("DROP TABLE IF EXISTS {$table}");
+    }
+    foreach ($schema as $sql) {
+        $db->exec($sql);
+    }
+    $db->commit();
+} catch (Throwable $e) {
+    if ($db->inTransaction()) {
+        $db->rollBack();
+    }
+    json_response(['error' => 'راه‌اندازی دیتابیس با خطا مواجه شد: ' . $e->getMessage()], 500);
 }
-$db->commit();
 
 // seed admin user if not exists
 $stmt = $db->prepare('SELECT id FROM users WHERE username = ?');
@@ -146,4 +182,4 @@ if (!$stmt->fetch()) {
         ->execute(['admin', $hash, 'manager']);
 }
 
-json_response(['message' => 'پایگاه‌داده راه‌اندازی شد.', 'db_file' => DB_FILE]);
+json_response(['message' => 'پایگاه‌داده با ساختار جدید راه‌اندازی شد.', 'db_file' => DB_FILE]);

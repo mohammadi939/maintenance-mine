@@ -14,7 +14,7 @@ if (!isset($_FILES['file'])) {
     json_response(['error' => 'فایل ارسال نشده است.'], 400);
 }
 
-$uploadDir = __DIR__ . '/uploads';
+$uploadDir = UPLOADS_DIR;
 if (!is_dir($uploadDir)) { mkdir($uploadDir, 0777, true); }
 
 $original = $_FILES['file']['name'];
