@@ -17,20 +17,14 @@ if (file_exists($legacyDbFile)) {
 
 $db = get_db();
 
-$dropTables = [
-    'entry_confirmation_items',
-    'entry_confirmations',
-    'external_repair_items',
-    'external_repairs',
-    'exit_request_items',
-    'exit_requests',
-    'entry_items',
-    'entry_confirms',
-    'repair_items',
-    'repair_forms',
-    'exit_items',
-    'exit_forms',
-];
+// create a backup of the current live database before making schema changes
+if (file_exists(DB_FILE)) {
+    $timestamp = date('Ymd_His');
+    $backupFile = BACKUP_DIR . '/maintenance_' . $timestamp . '.sqlite';
+    if (!@copy(DB_FILE, $backupFile)) {
+        json_response(['error' => 'پشتیبان‌گیری از دیتابیس فعلی ناموفق بود.'], 500);
+    }
+}
 
 $schema = [
     // users
@@ -159,9 +153,6 @@ $schema = [
 
 try {
     $db->beginTransaction();
-    foreach ($dropTables as $table) {
-        $db->exec("DROP TABLE IF EXISTS {$table}");
-    }
     foreach ($schema as $sql) {
         $db->exec($sql);
     }
